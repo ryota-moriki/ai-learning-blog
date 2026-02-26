@@ -1,0 +1,126 @@
+---
+title: "Next.js App Router 入門 — Pages RouterとApp Routerの違いを理解する"
+description: "Next.js 13から導入されたApp Routerの基本概念と、従来のPages Routerとの違いをわかりやすく解説します。Server Components、ルーティング、データ取得の新しい方法を学びましょう。"
+slug: "nextjs-app-router-guide"
+date: "2025-02-20"
+category: "技術"
+tags: ["Next.js", "React", "TypeScript", "Web開発"]
+published: true
+---
+
+## はじめに
+
+Next.js 13から **App Router** が導入され、React Server Componentsをベースにした新しいアーキテクチャが利用可能になりました。この記事では、従来の Pages Router との違いと、App Router の主な概念を整理します。
+
+## Pages Router vs App Router
+
+### ディレクトリ構造の違い
+
+Pages Router では `/pages` ディレクトリを使います。
+
+```
+pages/
+  index.tsx        → /
+  blog/
+    [slug].tsx     → /blog/:slug
+  api/
+    posts.ts       → /api/posts
+```
+
+App Router では `/app` ディレクトリを使い、ディレクトリ自体がルートになります。
+
+```
+app/
+  page.tsx         → /
+  blog/
+    [slug]/
+      page.tsx     → /blog/:slug
+  api/
+    posts/
+      route.ts     → /api/posts
+```
+
+### Server Components がデフォルト
+
+App Router の最大の特徴は **Server Components がデフォルト** であることです。
+
+```tsx
+// これはサーバーコンポーネント（デフォルト）
+// データフェッチをそのまま書ける
+export default async function BlogPage() {
+  const posts = await fetchPosts(); // サーバーで実行される
+
+  return (
+    <ul>
+      {posts.map((post) => (
+        <li key={post.id}>{post.title}</li>
+      ))}
+    </ul>
+  );
+}
+```
+
+クライアントコンポーネントが必要な場合は、ファイルの先頭に `'use client'` を追加します。
+
+```tsx
+'use client';
+
+import { useState } from 'react';
+
+export function Counter() {
+  const [count, setCount] = useState(0);
+  return <button onClick={() => setCount(count + 1)}>{count}</button>;
+}
+```
+
+## データ取得の新しい方法
+
+### Pages Router の場合
+
+```typescript
+// Pages Router: getStaticProps を使う
+export async function getStaticProps() {
+  const data = await fetch('https://api.example.com/posts').then(r => r.json());
+  return { props: { data } };
+}
+```
+
+### App Router の場合
+
+```typescript
+// App Router: async/await を直接使う
+async function getPosts() {
+  const res = await fetch('https://api.example.com/posts', {
+    next: { revalidate: 60 }, // ISR: 60秒ごとに再生成
+  });
+  return res.json();
+}
+
+export default async function Page() {
+  const posts = await getPosts();
+  return <PostList posts={posts} />;
+}
+```
+
+## 特殊なファイル
+
+App Router では、特定のファイル名が特別な意味を持ちます。
+
+| ファイル | 役割 |
+|---------|------|
+| `page.tsx` | ルートのUIを定義 |
+| `layout.tsx` | 共通レイアウト（ネスト可能）|
+| `loading.tsx` | ローディングUI（Suspense） |
+| `error.tsx` | エラーUI |
+| `not-found.tsx` | 404ページ |
+
+## まとめ
+
+App Router の主なポイント：
+
+1. **Server Components がデフォルト** — クライアントJSを最小化
+2. **直感的なデータ取得** — `async/await` をそのまま使える
+3. **ネストされたレイアウト** — `layout.tsx` で部分的なレイアウトが可能
+4. **ファイルベースのルーティング** — Pages Router と同じ考え方を踏襲
+
+次回は実際にブログをApp Routerで構築する実装例を紹介します。
