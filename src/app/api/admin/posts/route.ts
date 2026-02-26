@@ -1,57 +1,57 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
 import matter from 'gray-matter';
-import type { Category } from '@/types/post';
+import {
+  listFilesFromGitHub,
+  getFileFromGitHub,
+  createOrUpdateFile,
+} from '@/lib/github';
 
-const POSTS_DIR = path.join(process.cwd(), 'content/posts');
+const POSTS_PATH = 'content/posts';
 
-function ensurePostsDir() {
-  if (!fs.existsSync(POSTS_DIR)) {
-    fs.mkdirSync(POSTS_DIR, { recursive: true });
-  }
+interface AdminPostItem {
+  title: string;
+  slug: string;
+  date: string;
+  category: string;
+  published: boolean;
+  fileName: string;
 }
 
 // GET: 全記事一覧（下書き含む）
 export async function GET() {
-  ensurePostsDir();
+  try {
+    const files = await listFilesFromGitHub(POSTS_PATH);
 
-  const files = fs
-    .readdirSync(POSTS_DIR)
-    .filter((f) => f.endsWith('.mdx') || f.endsWith('.md'));
+    const posts: AdminPostItem[] = [];
 
-  interface AdminPostItem {
-    title: string;
-    slug: string;
-    date: string;
-    category: string;
-    published: boolean;
-    fileName: string;
-    [key: string]: unknown;
+    for (const file of files) {
+      const fileData = await getFileFromGitHub(file.path);
+      if (!fileData) continue;
+
+      const { data } = matter(fileData.content);
+      posts.push({
+        title: (data.title as string) || '',
+        slug: (data.slug as string) || file.name.replace(/\.(mdx|md)$/, ''),
+        date: (data.date as string) || '',
+        category: (data.category as string) || '',
+        published: (data.published as boolean) ?? false,
+        fileName: file.name,
+      });
+    }
+
+    // 日付降順
+    posts.sort((a, b) => {
+      const dateA = new Date(a.date || 0).getTime();
+      const dateB = new Date(b.date || 0).getTime();
+      return dateB - dateA;
+    });
+
+    return NextResponse.json({ posts });
+  } catch (err) {
+    console.error('Post list error:', err);
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return NextResponse.json({ error: `サーバーエラー: ${message}` }, { status: 500 });
   }
-
-  const posts: AdminPostItem[] = files.map((file) => {
-    const filePath = path.join(POSTS_DIR, file);
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const { data } = matter(content);
-    return {
-      title: (data.title as string) || '',
-      slug: (data.slug as string) || file.replace(/\.(mdx|md)$/, ''),
-      date: (data.date as string) || '',
-      category: (data.category as string) || '',
-      published: (data.published as boolean) ?? false,
-      fileName: file,
-    };
-  });
-
-  // 日付降順
-  posts.sort((a, b) => {
-    const dateA = new Date(a.date || 0).getTime();
-    const dateB = new Date(b.date || 0).getTime();
-    return dateB - dateA;
-  });
-
-  return NextResponse.json({ posts });
 }
 
 // POST: 記事作成
@@ -76,11 +76,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    ensurePostsDir();
-
     // 既存ファイルチェック
-    const filePath = path.join(POSTS_DIR, `${slug}.mdx`);
-    if (fs.existsSync(filePath)) {
+    const filePath = `${POSTS_PATH}/${slug}.mdx`;
+    const existing = await getFileFromGitHub(filePath);
+    if (existing) {
       return NextResponse.json(
         { error: 'この slug の記事は既に存在します' },
         { status: 409 }
@@ -93,15 +92,30 @@ export async function POST(request: NextRequest) {
       description: description || '',
       slug,
       date: now,
-      category: (category || '技術') as Category,
+      category: category || '技術',
       tags: tags || [],
       published: published ?? false,
     };
 
     const fileContent = matter.stringify(content, frontmatter);
-    fs.writeFileSync(filePath, fileContent, 'utf-8');
 
-    return NextResponse.json({ success: true, slug }, { status: 201 });
+    const result = await createOrUpdateFile(
+      filePath,
+      fileContent,
+      `Add post: ${title}`
+    );
+
+    if (!result.success) {
+      return NextResponse.json(
+        { error: `GitHub API エラー: ${result.error}` },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json(
+      { success: true, slug, message: '記事を作成しました。デプロイ後に反映されます。' },
+      { status: 201 }
+    );
   } catch (err) {
     console.error('Post creation error:', err);
     const message = err instanceof Error ? err.message : 'Unknown error';

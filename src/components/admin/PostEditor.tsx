@@ -23,6 +23,10 @@ interface Props {
 }
 
 function generateSlug(title: string): string {
+  // 日本語（マルチバイト文字）が含まれる場合は自動生成しない
+  if (/[^\x00-\x7F]/.test(title)) {
+    return '';
+  }
   return title
     .toLowerCase()
     .trim()
@@ -36,6 +40,7 @@ export function PostEditor({ initialData, mode }: Props) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [showPreview, setShowPreview] = useState(false);
   const [tagsInput, setTagsInput] = useState(initialData?.tags.join(', ') ?? '');
 
@@ -72,13 +77,18 @@ export function PostEditor({ initialData, mode }: Props) {
 
   async function handleSave() {
     setError('');
+    setSuccessMessage('');
 
     if (!form.title.trim()) {
       setError('タイトルは必須です');
       return;
     }
     if (!form.slug.trim()) {
-      setError('slugは必須です');
+      setError('Slugは必須です。英数字とハイフンでURLに使う名前を入力してください（例: how-ai-works）');
+      return;
+    }
+    if (!/^[a-z0-9_-]+$/i.test(form.slug)) {
+      setError('Slugは英数字・ハイフン・アンダースコアのみ使用できます');
       return;
     }
     if (!form.content.trim()) {
@@ -106,14 +116,18 @@ export function PostEditor({ initialData, mode }: Props) {
         body: JSON.stringify(body),
       });
 
+      const data = await res.json();
+
       if (!res.ok) {
-        const data = await res.json();
         setError(data.error || '保存に失敗しました');
         return;
       }
 
-      router.push('/admin');
-      router.refresh();
+      setSuccessMessage('✅ 保存しました！Vercelが自動デプロイ中です（1〜2分で反映されます）');
+      setTimeout(() => {
+        router.push('/admin');
+        router.refresh();
+      }, 3000);
     } catch {
       setError('通信エラーが発生しました');
     } finally {
@@ -165,6 +179,12 @@ export function PostEditor({ initialData, mode }: Props) {
           </div>
         )}
 
+        {successMessage && (
+          <div className="mb-4 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-3">
+            {successMessage}
+          </div>
+        )}
+
         {/* Metadata form */}
         <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -199,7 +219,9 @@ export function PostEditor({ initialData, mode }: Props) {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="url-friendly-slug"
               />
-              <p className="text-xs text-gray-400 mt-1">URL: /posts/{form.slug || '...'}</p>
+              <p className="text-xs text-gray-400 mt-1">
+                URL: /posts/{form.slug || '...'} ※英数字とハイフンで入力（例: how-ai-works）
+              </p>
             </div>
 
             <div>
